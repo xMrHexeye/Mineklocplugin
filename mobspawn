@@ -1,0 +1,199 @@
+package com.example.mobspawner;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.entity.EntityType;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
+
+public class MobSpawner extends JavaPlugin {
+
+    private final List<EntityType> MOB_TYPES = Arrays.asList(
+            EntityType.ZOMBIE,
+            EntityType.SKELETON,
+            EntityType.SPIDER,
+            EntityType.CREEPER,
+            EntityType.ENDERMAN
+    );
+    
+    private final Random random = new Random();
+    private int spawnInterval; // in seconds
+    private int spawnRadius;
+    private boolean enabled;
+
+    @Override
+    public void onEnable() {
+        // Load or create config
+        saveDefaultConfig();
+        reloadConfig();
+        
+        // Get configuration values
+        spawnInterval = getConfig().getInt("spawn-interval", 300); // default 5 minutes
+        spawnRadius = getConfig().getInt("spawn-radius", 50); // default 50 blocks
+        enabled = getConfig().getBoolean("enabled", true);
+        
+        // Register command
+        getCommand("mobspawner").setExecutor(new MobSpawnerCommand(this));
+        
+        // Start spawn task if enabled
+        if (enabled) {
+            startSpawning();
+        }
+        
+        getLogger().info("MobSpawner has been enabled!");
+    }
+
+    @Override
+    public void onDisable() {
+        getLogger().info("MobSpawner has been disabled!");
+    }
+
+    public void startSpawning() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!enabled) {
+                    this.cancel();
+                    return;
+                }
+                
+                // Spawn mobs for each online player
+                Bukkit.getOnlinePlayers().forEach(player -> {
+                    if (player.hasPermission("mobspawner.spawn")) {
+                        Location playerLoc = player.getLocation();
+                        World world = player.getWorld();
+                        
+                        // Generate random location near player
+                        Location spawnLoc = getRandomLocationNear(playerLoc, spawnRadius);
+                        
+                        // Spawn random mob
+                        EntityType mobType = MOB_TYPES.get(random.nextInt(MOB_TYPES.size()));
+                        world.spawnEntity(spawnLoc, mobType);
+                        
+                        player.sendMessage("A " + mobType.name().toLowerCase() + " has spawned nearby!");
+                    }
+                });
+            }
+        }.runTaskTimer(this, 0L, spawnInterval * 20L); // Convert seconds to ticks
+    }
+
+    private Location getRandomLocationNear(Location center, int radius) {
+        World world = center.getWorld();
+        double x = center.getX() + (random.nextDouble() - 0.5) * radius * 2;
+        double z = center.getZ() + (random.nextDouble() - 0.5) * radius * 2;
+        double y = world.getHighestBlockYAt((int) x, (int) z) + 1;
+        return new Location(world, x, y, z);
+    }
+
+    // Getters and setters for configuration
+    public void setSpawnInterval(int interval) {
+        this.spawnInterval = interval;
+        getConfig().set("spawn-interval", interval);
+        saveConfig();
+    }
+
+    public void setSpawnRadius(int radius) {
+        this.spawnRadius = radius;
+        getConfig().set("spawn-radius", radius);
+        saveConfig();
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+        getConfig().set("enabled", enabled);
+        saveConfig();
+        
+        if (enabled) {
+            startSpawning();
+        }
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public int getSpawnInterval() {
+        return spawnInterval;
+    }
+
+    public int getSpawnRadius() {
+        return spawnRadius;
+    }
+}
+
+class MobSpawnerCommand implements org.bukkit.command.CommandExecutor {
+    private final MobSpawner plugin;
+
+    public MobSpawnerCommand(MobSpawner plugin) {
+        this.plugin = plugin;
+    }
+
+    @Override
+    public boolean onCommand(org.bukkit.command.CommandSender sender, org.bukkit.command.Command cmd, String label, String[] args) {
+        if (args.length == 0) {
+            sender.sendMessage("§6MobSpawner Commands:");
+            sender.sendMessage("§a/mobspawner enable §7- Enable mob spawning");
+            sender.sendMessage("§a/mobspawner disable §7- Disable mob spawning");
+            sender.sendMessage("§a/mobspawner interval <seconds> §7- Set spawn interval");
+            sender.sendMessage("§a/mobspawner radius <blocks> §7- Set spawn radius");
+            sender.sendMessage("§a/mobspawner status §7- Show current settings");
+            return true;
+        }
+
+        if (!sender.hasPermission("mobspawner.admin")) {
+            sender.sendMessage("§cYou don't have permission to use this command!");
+            return true;
+        }
+
+        switch (args[0].toLowerCase()) {
+            case "enable":
+                plugin.setEnabled(true);
+                sender.sendMessage("§aMob spawning has been enabled!");
+                break;
+            case "disable":
+                plugin.setEnabled(false);
+                sender.sendMessage("§aMob spawning has been disabled!");
+                break;
+            case "interval":
+                if (args.length < 2) {
+                    sender.sendMessage("§cUsage: /mobspawner interval <seconds>");
+                    return true;
+                }
+                try {
+                    int interval = Integer.parseInt(args[1]);
+                    plugin.setSpawnInterval(interval);
+                    sender.sendMessage("§aSpawn interval set to " + interval + " seconds");
+                } catch (NumberFormatException e) {
+                    sender.sendMessage("§cPlease enter a valid number!");
+                }
+                break;
+            case "radius":
+                if (args.length < 2) {
+                    sender.sendMessage("§cUsage: /mobspawner radius <blocks>");
+                    return true;
+                }
+                try {
+                    int radius = Integer.parseInt(args[1]);
+                    plugin.setSpawnRadius(radius);
+                    sender.sendMessage("§aSpawn radius set to " + radius + " blocks");
+                } catch (NumberFormatException e) {
+                    sender.sendMessage("§cPlease enter a valid number!");
+                }
+                break;
+            case "status":
+                sender.sendMessage("§6MobSpawner Status:");
+                sender.sendMessage("§7Enabled: " + (plugin.isEnabled() ? "§aYes" : "§cNo"));
+                sender.sendMessage("§7Spawn Interval: §e" + plugin.getSpawnInterval() + " seconds");
+                sender.sendMessage("§7Spawn Radius: §e" + plugin.getSpawnRadius() + " blocks");
+                break;
+            default:
+                sender.sendMessage("§cUnknown command. Use /mobspawner for help.");
+        }
+        return true;
+    }
+}
